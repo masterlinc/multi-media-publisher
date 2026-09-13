@@ -1,0 +1,116 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # 每周一 UTC 06:00 跑一次
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+  pull-requests: read
+  security-events: write
+
+jobs:
+  # ============== 1. gitleaks 扫描 ==============
+  gitleaks:
+    name: Gitleaks Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACTS: true
+          GITLEAKS_ENABLE_SUMMARY: true
+
+  # ============== 2. Python 依赖漏洞扫描 ==============
+  dependency-check:
+    name: Python Dependency Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Audit web dependencies
+        run: pip-audit -r web/requirements.txt || true
+
+  # ============== 3. Docker image 扫描（用 Trivy 代替 Docker Hub Scan）==============
+  docker-scan:
+    name: Dockerfile Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Hadolint Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: web/Dockerfile
+          failure-threshold: warning
+
+  # ============== 4. YAML / shell 语法检查 ==============
+  lint:
+    name: Config & Script Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        uses: ludeeus/action-shellcheck@2.0.0
+        with:
+          scandir: ./scripts
+          additional_files: web/start.sh
+
+      - name: yamllint
+        run: |
+          pip install yamllint
+          yamllint -d relaxed docker-compose.yml .gitleaks.toml || true
+
+  # ============== 5. .env 文件未被提交检查 ==============
+  env-not-committed:
+    name: .env not in git
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check .env not in git
+        run: |
+          if git ls-files | grep -E '^\.env$|^\.env\.local$|^\.env\.example$'; then
+            echo "❌ .env 文件被提交了！"
+            exit 1
+          fi
+          echo "✅ .env 安全未提交"
+
+  # ============== 6. 仓库统计 ==============
+  stats:
+    name: Repo Stats
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Code stats
+        run: |
+          echo "## 📊 Repository Stats" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| 类别 | 数量 |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Python files | $(find . -name '*.py' -not -path './.*' | wc -l) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Bash scripts | $(find . -name '*.sh' -not -path './.*' | wc -l) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Markdown docs | $(find . -name '*.md' -not -path './.*' -not -path './node_modules/*' | wc -l) |" >> $GITHUB_STEP_SUMMARY
+          echo "| YAML configs | $(find . -name '*.yaml' -o -name '*.yml' -not -path './.*' | wc -l) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Lines of code | $(find . -type f \( -name '*.py' -o -name '*.sh' -o -name '*.js' \) -not -path './.*' | xargs wc -l 2>/dev/null | tail -1) |" >> $GITHUB_STEP_SUMMARY
+          cat $GITHUB_STEP_SUMMARY

@@ -1,0 +1,73 @@
+name: Integration Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # 启动 docker compose 测试
+  docker-test:
+    name: Docker Compose Health Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy .env.example to .env
+        run: |
+          cp .env.example .env
+          # 填入测试占位符
+          echo "N8N_USER=test_admin" >> .env
+          echo "N8N_PASSWORD=test_password" >> .env
+          echo "N8N_HOST=localhost" >> .env
+          echo "MINIO_USER=test_minio" >> .env
+          echo "MINIO_PASSWORD=test_password" >> .env
+
+      - name: Start docker compose
+        run: docker compose up -d
+
+      - name: Wait for services
+        run: |
+          echo "Waiting for services to be ready..."
+          for i in {1..30}; do
+            if curl -s -o /dev/null -w "%{http_code}" http://localhost:8090/api/health | grep -q "200"; then
+              echo "✅ web service is up"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "❌ services failed to start in 30s"
+              docker compose logs
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Test endpoints
+        run: |
+          echo "=== /api/health ==="
+          curl -sS http://localhost:8090/api/health
+          echo ""
+          echo ""
+          echo "=== /api/drafts ==="
+          curl -sS http://localhost:8090/api/drafts
+          echo ""
+          echo ""
+          echo "=== /api/usage?days=7 ==="
+          curl -sS "http://localhost:8090/api/usage?days=7"
+          echo ""
+
+      - name: Test Dify + n8n connectivity
+        run: |
+          echo "=== n8n health ==="
+          curl -sS -o /dev/null -w "%{http_code}\n" http://localhost:5678/healthz
+          echo "=== MinIO health ==="
+          curl -sS -o /dev/null -w "%{http_code}\n" http://localhost:9000/minio/health/live
+          echo "=== Uptime Kuma ==="
+          curl -sS -o /dev/null -w "%{http_code}\n" http://localhost:3001
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v

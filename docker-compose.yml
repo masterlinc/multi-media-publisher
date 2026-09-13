@@ -3,6 +3,7 @@
 # 飞书做前台 + 自托管后台（方案A）
 # ============================================================
 # 包含服务：
+#   - web          : Web 控制台 (v0.5 新增) FastAPI + 单页 UI
 #   - n8n          : 工作流自动化引擎（核心调度）
 #   - minio        : 对象存储（图片/视频/素材）
 #   - uptime-kuma  : 服务监控告警
@@ -14,6 +15,34 @@
 name: media-publisher
 
 services:
+  # ---------- Web 控制台（v0.5 新增）----------
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    container_name: media-web
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      # mount .env 让 web 能读凭证
+      - ./.env:/app/.env:ro
+      # mount 整个项目（pipeline/ 必须能访问，vault 可选）
+      - .:/app:ro
+      # 凭证写入用 tmpfs
+      - web_tmp:/tmp
+    networks:
+      - media-network
+    depends_on:
+      - n8n
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
   # ---------- n8n 工作流引擎 ----------
   n8n:
     image: n8nio/n8n:latest
@@ -136,3 +165,6 @@ services:
 networks:
   media-network:
     driver: bridge
+
+volumes:
+  web_tmp:
