@@ -46,6 +46,10 @@ PUBLISH_PY = ROOT_DIR / "pipeline" / "publish.py"
 
 VAULT_PATH = Path.home() / "Documents" / "Obsidian Vault" / "00-转型·一人事业" / "04-原创写作专区" / "价值文章"
 
+# v0.3.0: 用量统计存储
+USAGE_DIR = Path.home() / ".openclaw" / "workspace" / "multi-media-publisher" / "usage"
+USAGE_LOG = USAGE_DIR / "publishes.jsonl"
+
 # ============== 凭证定义（哪些 key 在 Web UI 里可编辑）==============
 # 每个 key 显示中文名、是否脱敏（敏感字段）
 EDITABLE_CREDENTIALS = [
@@ -161,7 +165,6 @@ def _list_drafts() -> list:
         if article.exists():
             size = article.stat().st_size
             text = article.read_text(encoding="utf-8", errors="ignore")
-            # 提取第一个 # 标题
             for line in text.splitlines():
                 if line.startswith("# "):
                     title = line[2:].strip()
@@ -182,6 +185,60 @@ def _list_drafts() -> list:
             "modified": d.stat().st_mtime,
         })
     return drafts
+
+
+# ====== v0.3.0: 用量统计 ======
+
+def _log_usage(draft_id: str, title: str, platforms: list, results: dict) -> None:
+    """记录一次发布到 JSONL 日志。"""
+    USAGE_DIR.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "ts": __import__("datetime").datetime.now().isoformat(),
+        "draft_id": draft_id,
+        "title": title,
+        "platforms": platforms,
+        "results": {p: {"ok": r.get("ok", False), "via": r.get("via", "local")} for p, r in results.items()},
+    }
+    with open(USAGE_LOG, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    print(f"[usage] logged: draft={draft_id} platforms={platforms} ok={any(r.get('ok') for r in results.values())}")
+
+
+def _read_usage(days: int = 30) -> dict:
+    """读最近 N 天的用量统计。"""
+    from datetime import datetime, timedelta
+    if not USAGE_LOG.exists():
+        return {"total": 0, "by_platform": {}, "by_day": {}, "recent": []}
+
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+    entries = []
+    by_platform = {}
+    by_day = {}
+    total = 0
+    for line in USAGE_LOG.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            e = json.loads(line)
+        except Exception:
+            continue
+        if e.get("ts", "") < cutoff:
+            continue
+        entries.append(e)
+        total += 1
+        day = e["ts"][:10]
+        by_day[day] = by_day.get(day, 0) + 1
+        for p, r in e.get("results", {}).items():
+            if r.get("ok"):
+                by_platform[p] = by_platform.get(p, 0) + 1
+
+    entries.sort(key=lambda x: x["ts"], reverse=True)
+    return {
+        "total": total,
+        "by_platform": by_platform,
+        "by_day": dict(sorted(by_day.items())),
+        "recent": entries[:20],
+    }
 
 
 def _check_services() -> dict:
@@ -295,18 +352,17 @@ async def trigger_publish(request: Request):
 
     draft_id = body.get("draft_id", "").strip()
     platforms = body.get("platforms", ["xiaohongshu"])
+    title = body.get("title", "")
 
     if not draft_id:
         raise HTTPException(status_code=400, detail="draft_id required")
     if not platforms:
         raise HTTPException(status_code=400, detail="platforms required")
 
-    # 检查 draft 是否存在
     stored_dir = VAULT_PATH / draft_id
     if not stored_dir.exists():
         raise HTTPException(status_code=404, detail=f"draft {draft_id} not found in vault")
 
-    # 调用 publish.py
     if not PUBLISH_PY.exists():
         raise HTTPException(status_code=500, detail=f"publish.py not found: {PUBLISH_PY}")
 
@@ -319,6 +375,23 @@ async def trigger_publish(request: Request):
             text=True,
             timeout=120,
         )
+        # v0.3.0: 记录用量
+        try:
+            meta_path = stored_dir / "meta.json"
+            meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+            results_for_log = {}
+            # 根据 publish.py 输出解析每个平台结果
+            stdout = result.stdout or ""
+            for p in platforms:
+                ok = f"✅{p}" in stdout or f"[✅] {p}" in stdout
+                results_for_log[p] = {
+                    "ok": ok,
+                    "via": "n8n" if p != "xiaohongshu" else "local",
+                }
+            _log_usage(draft_id, title or meta.get("title", draft_id), platforms, results_for_log)
+        except Exception as e:
+            print(f"[usage] log error: {e}")
+
         return {
             "ok": result.returncode == 0,
             "returncode": result.returncode,
@@ -330,6 +403,12 @@ async def trigger_publish(request: Request):
         raise HTTPException(status_code=504, detail="publish timeout after 120s")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/usage")
+async def get_usage(days: int = 30):
+    """读取最近 N 天的发布用量统计。"""
+    return _read_usage(days)
 
 
 # ============== 启动 ==============

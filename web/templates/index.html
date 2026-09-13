@@ -60,6 +60,7 @@
       <button onclick="switchTab('credentials')" id="tab-credentials" class="tab tab-inactive px-4 py-3 text-sm font-medium">🔑 平台凭证</button>
       <button onclick="switchTab('drafts')" id="tab-drafts" class="tab tab-inactive px-4 py-3 text-sm font-medium">📄 草稿列表</button>
       <button onclick="switchTab('publish')" id="tab-publish" class="tab tab-inactive px-4 py-3 text-sm font-medium">🚀 发布控制</button>
+      <button onclick="switchTab('usage')" id="tab-usage" class="tab tab-inactive px-4 py-3 text-sm font-medium">📊 用量统计</button>
     </div>
   </div>
 
@@ -123,6 +124,46 @@
       </div>
       <div id="drafts-list" class="space-y-2">
         <p class="text-sm text-zinc-500">加载中...</p>
+      </div>
+    </section>
+
+    <!-- ============== Tab: 用量统计（v0.3.0）============== -->
+    <section id="panel-usage" class="panel hidden">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-zinc-900">发布用量统计</h2>
+        <div>
+          <select id="usage-days" onchange="loadUsage()" class="text-sm border border-zinc-300 rounded px-2 py-1">
+            <option value="7">最近 7 天</option>
+            <option value="30" selected>最近 30 天</option>
+            <option value="90">最近 90 天</option>
+          </select>
+          <button onclick="loadUsage()" class="text-sm text-zinc-600 hover:text-zinc-900 ml-2">🔄 刷新</button>
+        </div>
+      </div>
+
+      <div id="usage-summary" class="grid grid-cols-3 gap-4 mb-6">
+        <div class="bg-white rounded-lg border border-zinc-200 p-4">
+          <div class="text-xs text-zinc-500">总发布数</div>
+          <div class="text-2xl font-semibold text-zinc-900 mt-1" id="usage-total">-</div>
+        </div>
+        <div class="bg-white rounded-lg border border-zinc-200 p-4">
+          <div class="text-xs text-zinc-500">最常用平台</div>
+          <div class="text-2xl font-semibold text-zinc-900 mt-1" id="usage-top-platform">-</div>
+        </div>
+        <div class="bg-white rounded-lg border border-zinc-200 p-4">
+          <div class="text-xs text-zinc-500">活跃天数</div>
+          <div class="text-2xl font-semibold text-zinc-900 mt-1" id="usage-active-days">-</div>
+        </div>
+      </div>
+
+      <h3 class="text-sm font-semibold text-zinc-700 mb-2">按平台分布</h3>
+      <div id="usage-platforms" class="bg-white rounded-lg border border-zinc-200 p-4 mb-6">
+        <p class="text-xs text-zinc-500">加载中...</p>
+      </div>
+
+      <h3 class="text-sm font-semibold text-zinc-700 mb-2">最近 20 条发布记录</h3>
+      <div id="usage-recent" class="bg-white rounded-lg border border-zinc-200 divide-y divide-zinc-200">
+        <p class="p-3 text-xs text-zinc-500">加载中...</p>
       </div>
     </section>
 
@@ -344,9 +385,76 @@
     }
 
     // ============== 初始化 ==============
+    // ============== 用量统计 ==============
+    async function loadUsage() {
+      const days = document.getElementById('usage-days').value;
+      try {
+        const r = await fetch('/api/usage?days=' + days);
+        const d = await r.json();
+        document.getElementById('usage-total').textContent = d.total;
+
+        // 平台分布
+        const platformsEl = document.getElementById('usage-platforms');
+        if (Object.keys(d.by_platform).length === 0) {
+          platformsEl.innerHTML = '<p class="text-xs text-zinc-500">暂无发布记录。跑一次发布就有了。</p>';
+        } else {
+          const max = Math.max(...Object.values(d.by_platform));
+          let html = '<div class="space-y-2">';
+          for (const [p, count] of Object.entries(d.by_platform)) {
+            const pct = (count / max * 100).toFixed(0);
+            html += `
+              <div class="flex items-center gap-3 text-sm">
+                <div class="w-24 text-zinc-700">${p}</div>
+                <div class="flex-1 bg-zinc-100 rounded h-5 overflow-hidden">
+                  <div class="bg-zinc-900 h-full" style="width: ${pct}%"></div>
+                </div>
+                <div class="w-12 text-right text-zinc-700">${count}</div>
+              </div>`;
+          }
+          html += '</div>';
+          platformsEl.innerHTML = html;
+        }
+
+        // 最常用平台
+        const top = Object.entries(d.by_platform).sort((a, b) => b[1] - a[1])[0];
+        document.getElementById('usage-top-platform').textContent = top ? top[0] : '-';
+
+        // 活跃天数
+        document.getElementById('usage-active-days').textContent = Object.keys(d.by_day).length;
+
+        // 最近 20 条
+        const recentEl = document.getElementById('usage-recent');
+        if (d.recent.length === 0) {
+          recentEl.innerHTML = '<p class="p-3 text-xs text-zinc-500">暂无发布记录</p>';
+        } else {
+          let html = '';
+          for (const r of d.recent) {
+            const ts = new Date(r.ts).toLocaleString('zh-CN');
+            const platforms = Object.entries(r.results).map(([p, info]) =>
+              `<span class="${info.ok ? 'text-green-600' : 'text-red-600'}">${info.ok ? '✓' : '✗'} ${p}</span>`
+            ).join(' · ');
+            html += `
+              <div class="p-3">
+                <div class="flex items-center justify-between">
+                  <div class="text-sm font-medium text-zinc-900">${r.title || r.draft_id}</div>
+                  <div class="text-xs text-zinc-500">${ts}</div>
+                </div>
+                <div class="text-xs text-zinc-600 mt-1">
+                  <code>${r.draft_id}</code> · ${platforms}
+                </div>
+              </div>`;
+          }
+          recentEl.innerHTML = html;
+        }
+      } catch (e) {
+        toast('加载用量失败：' + e, 'error');
+      }
+    }
+
     loadServices();
     loadCredentials();
     loadDrafts();
+    loadUsage();
     setInterval(loadServices, 30000);  // 30s 刷新服务状态
   </script>
 </body>
