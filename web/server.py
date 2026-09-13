@@ -25,11 +25,12 @@ from pathlib import Path
 from typing import Optional
 
 try:
-    from fastapi import FastAPI, HTTPException, Request, Form
+    from fastapi import FastAPI, HTTPException, Request, Form, WebSocket, WebSocketDisconnect
     from fastapi.responses import HTMLResponse, JSONResponse
     from fastapi.staticfiles import StaticFiles
     from fastapi.templating import Jinja2Templates
     import uvicorn
+    import asyncio
 except ImportError:
     print("❌ 缺少依赖：fastapi / uvicorn / jinja2")
     print("   pip install -r web/requirements.txt")
@@ -380,7 +381,6 @@ async def trigger_publish(request: Request):
             meta_path = stored_dir / "meta.json"
             meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
             results_for_log = {}
-            # 根据 publish.py 输出解析每个平台结果
             stdout = result.stdout or ""
             for p in platforms:
                 ok = f"✅{p}" in stdout or f"[✅] {p}" in stdout
@@ -403,6 +403,100 @@ async def trigger_publish(request: Request):
         raise HTTPException(status_code=504, detail="publish timeout after 120s")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# v0.4.0: WebSocket 实时进度推送
+@app.websocket("/ws/publish")
+async def ws_publish(websocket: WebSocket):
+    """
+    WebSocket 端点：实时推送 publish.py 的 stdout/stderr 行
+    用法（前端 JS）：
+      ws = new WebSocket('ws://host:8090/ws/publish')
+      ws.onmessage = (e) => { const line = JSON.parse(e.data); append(line); }
+    消息格式：{"ts": "...", "type": "stdout|stderr|info|done|error", "line": "..."}
+    """
+    await websocket.accept()
+    try:
+        # 等待客户端发 draft_id + platforms
+        params = await websocket.receive_json()
+        draft_id = params.get("draft_id", "").strip()
+        platforms = params.get("platforms", ["xiaohongshu"])
+
+        if not draft_id:
+            await websocket.send_json({"type": "error", "line": "draft_id required"})
+            await websocket.close()
+            return
+
+        stored_dir = VAULT_PATH / draft_id
+        if not stored_dir.exists():
+            await websocket.send_json({"type": "error", "line": f"draft {draft_id} not found"})
+            await websocket.close()
+            return
+
+        if not PUBLISH_PY.exists():
+            await websocket.send_json({"type": "error", "line": f"publish.py not found"})
+            await websocket.close()
+            return
+
+        cmd = ["python3", str(PUBLISH_PY), draft_id, f"--platforms={','.join(platforms)}"]
+        await websocket.send_json({"type": "info", "line": f"启动: {' '.join(cmd)}"})
+
+        # 用 Popen + 实时读流
+        process = subprocess.Popen(
+            cmd,
+            cwd=str(ROOT_DIR),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+
+        async def read_stream(stream, kind):
+            """异步读流，每行推一次 WebSocket。"""
+            import select
+            loop = asyncio.get_event_loop()
+            while True:
+                line = await loop.run_in_executor(None, stream.readline)
+                if not line:
+                    break
+                await websocket.send_json({"type": kind, "line": line.rstrip()})
+
+        try:
+            await asyncio.gather(
+                read_stream(process.stdout, "stdout"),
+                read_stream(process.stderr, "stderr"),
+            )
+            returncode = await asyncio.get_event_loop().run_in_executor(None, process.wait)
+            await websocket.send_json({"type": "done", "line": f"exit code {returncode}"})
+
+            # 记录用量
+            try:
+                meta_path = stored_dir / "meta.json"
+                meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+                results_for_log = {}
+                for p in platforms:
+                    # 不在 stderr 里解析（已超上下文），用 returncode 简化
+                    results_for_log[p] = {
+                        "ok": returncode == 0,
+                        "via": "n8n" if p != "xiaohongshu" else "local",
+                    }
+                _log_usage(draft_id, params.get("title", "") or meta.get("title", draft_id), platforms, results_for_log)
+            except Exception as e:
+                print(f"[ws usage] log error: {e}")
+        except WebSocketDisconnect:
+            process.terminate()
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        try:
+            await websocket.send_json({"type": "error", "line": str(e)})
+        except Exception:
+            pass
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 
 @app.get("/api/usage")

@@ -9,10 +9,18 @@
 # 注意：dify/apps/ 和 dify/docker/ 配置/源码要入 git
 dify/docker/volumes/
 
-# n8n 工作流数据（容器里的 n8n/）
-# 注意：workflows/n8n/ 是配置文件，要入 git
-# 所以不能用 n8n/ 直接 ignore，改用 docker-n8n/ 或精确路径
-# 但本项目没有 docker-n8n/，所以这个 pattern 暂时不需要
+# 各服务运行时数据
+n8n/
+minio/
+uptime-kuma/
+feishu-ws-bridge/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.db-shm
+*.db-wal
+kuma.db*
 
 # 临时文件
 *.log

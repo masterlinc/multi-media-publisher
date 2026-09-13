@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>multi-media-publisher · 控制台</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; }
     .tab-active { background: #0a0a0a; color: #fff; }
@@ -156,9 +157,19 @@
         </div>
       </div>
 
+      <h3 class="text-sm font-semibold text-zinc-700 mb-2">发布趋势（按日）</h3>
+      <div class="bg-white rounded-lg border border-zinc-200 p-4 mb-6" style="height: 240px;">
+        <canvas id="chart-trend"></canvas>
+      </div>
+
       <h3 class="text-sm font-semibold text-zinc-700 mb-2">按平台分布</h3>
-      <div id="usage-platforms" class="bg-white rounded-lg border border-zinc-200 p-4 mb-6">
-        <p class="text-xs text-zinc-500">加载中...</p>
+      <div class="grid grid-cols-2 gap-4 mb-6">
+        <div class="bg-white rounded-lg border border-zinc-200 p-4" style="height: 280px;">
+          <canvas id="chart-platforms"></canvas>
+        </div>
+        <div id="usage-platforms" class="bg-white rounded-lg border border-zinc-200 p-4">
+          <p class="text-xs text-zinc-500 mb-2">数字详情</p>
+        </div>
       </div>
 
       <h3 class="text-sm font-semibold text-zinc-700 mb-2">最近 20 条发布记录</h3>
@@ -191,8 +202,10 @@
       <button onclick="doPublish()" class="bg-zinc-900 text-white px-6 py-2 rounded text-sm hover:bg-zinc-700">🚀 立即发布</button>
 
       <div class="mt-6">
-        <h3 class="text-sm font-semibold text-zinc-700 mb-2">执行结果</h3>
-        <pre id="publish-result" class="bg-zinc-900 text-zinc-100 rounded p-4 text-xs overflow-auto max-h-96"></pre>
+        <h3 class="text-sm font-semibold text-zinc-700 mb-2">实时进度（v0.4 WebSocket）</h3>
+        <div class="bg-zinc-900 text-zinc-100 rounded p-4 text-xs overflow-auto max-h-96 font-mono" id="publish-result">
+          <div class="text-zinc-500">⏳ 等待点击发布...</div>
+        </div>
       </div>
     </section>
 
@@ -353,7 +366,23 @@
       document.getElementById('publish-draft').value = draftId;
     }
 
-    // ============== 发布 ==============
+    // ============== 发布（v0.4: WebSocket 实时进度）==============
+    function appendLog(container, type, line) {
+      const colorMap = {
+        stdout: 'text-zinc-200',
+        stderr: 'text-red-300',
+        info:   'text-blue-300',
+        done:   'text-green-300',
+        error:  'text-red-400',
+      };
+      const cls = colorMap[type] || 'text-zinc-200';
+      const div = document.createElement('div');
+      div.className = cls;
+      div.textContent = line;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    }
+
     async function doPublish() {
       const draftId = document.getElementById('publish-draft').value;
       const platforms = Array.from(document.querySelectorAll('.platform-cb:checked')).map(c => c.value);
@@ -361,31 +390,50 @@
       if (platforms.length === 0) { toast('请至少选一个平台', 'error'); return; }
 
       const resultEl = document.getElementById('publish-result');
-      resultEl.textContent = `⏳ 正在发布：${draftId} → ${platforms.join(', ')}\n\n`;
+      resultEl.innerHTML = '';
+      appendLog(resultEl, 'info', `启动：draft=${draftId} platforms=${platforms.join(',')}`);
 
-      try {
-        const r = await fetch('/api/publish', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ draft_id: draftId, platforms: platforms }),
-        });
-        const d = await r.json();
-        resultEl.textContent += '=== STDOUT ===\n' + (d.stdout || '') + '\n';
-        resultEl.textContent += '=== STDERR ===\n' + (d.stderr || '') + '\n';
-        resultEl.textContent += '=== EXIT CODE ===\n' + d.returncode + '\n';
-        if (d.ok) {
-          toast('✅ 发布完成', 'success');
-        } else {
-          toast('❌ 发布失败（看执行结果）', 'error');
+      // v0.4: 用 WebSocket
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${proto}//${location.host}/ws/publish`);
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ draft_id: draftId, platforms }));
+      };
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        appendLog(resultEl, msg.type, `[${msg.type}] ${msg.line}`);
+        if (msg.type === 'done') {
+          toast('✅ 发布完成（exit ' + msg.line.match(/\d+/)?.[0] + '）', 'success');
+          ws.close();
+          loadUsage();  // 刷新用量
+        } else if (msg.type === 'error') {
+          toast('❌ 发布失败', 'error');
+          ws.close();
         }
-      } catch (e) {
-        resultEl.textContent += '=== ERROR ===\n' + e + '\n';
-        toast('发布请求失败：' + e, 'error');
-      }
+      };
+      ws.onerror = (e) => {
+        appendLog(resultEl, 'error', '[ws error] WebSocket 连接失败');
+        toast('WebSocket 错误：' + e, 'error');
+      };
+      ws.onclose = () => {
+        appendLog(resultEl, 'info', '[ws] 连接关闭');
+      };
     }
 
     // ============== 初始化 ==============
     // ============== 用量统计 ==============
+    let chartTrend = null;
+    let chartPlatforms = null;
+    const PLATFORM_COLORS = {
+      xiaohongshu: '#ff2442',  // 小红书红
+      juejin:      '#1e80ff',  // 掘金蓝
+      sspai:       '#d9382b',  // 少数派红
+      zhihu:       '#056de8',  // 知乎蓝
+      weibo:       '#e6162d',  // 微博红
+      gongzhonghao: '#07c160', // 公众号绿
+    };
+
     async function loadUsage() {
       const days = document.getElementById('usage-days').value;
       try {
@@ -393,20 +441,85 @@
         const d = await r.json();
         document.getElementById('usage-total').textContent = d.total;
 
-        // 平台分布
+        // 最常用平台 + 活跃天数
+        const top = Object.entries(d.by_platform).sort((a, b) => b[1] - a[1])[0];
+        document.getElementById('usage-top-platform').textContent = top ? top[0] : '-';
+        document.getElementById('usage-active-days').textContent = Object.keys(d.by_day).length;
+
+        // ===== 趋势图 =====
+        const days_arr = Object.keys(d.by_day).sort();
+        const counts_arr = days_arr.map(d => d.by_day ? d.by_day[d] : 0);
+        if (chartTrend) chartTrend.destroy();
+        if (days_arr.length > 0) {
+          const ctx = document.getElementById('chart-trend').getContext('2d');
+          chartTrend = new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: days_arr,
+              datasets: [{
+                label: '发布数',
+                data: counts_arr,
+                borderColor: '#0a0a0a',
+                backgroundColor: 'rgba(10,10,10,0.1)',
+                fill: true,
+                tension: 0.3,
+                pointRadius: 4,
+                pointBackgroundColor: '#0a0a0a',
+              }],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { display: false } },
+              scales: {
+                y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
+                x: { grid: { display: false } },
+              },
+            },
+          });
+        }
+
+        // ===== 平台饼图 =====
+        if (chartPlatforms) chartPlatforms.destroy();
+        const platformsEntries = Object.entries(d.by_platform);
+        if (platformsEntries.length > 0) {
+          const ctx2 = document.getElementById('chart-platforms').getContext('2d');
+          chartPlatforms = new Chart(ctx2, {
+            type: 'doughnut',
+            data: {
+              labels: platformsEntries.map(([p]) => p),
+              datasets: [{
+                data: platformsEntries.map(([_, c]) => c),
+                backgroundColor: platformsEntries.map(([p]) => PLATFORM_COLORS[p] || '#94a3b8'),
+                borderWidth: 2,
+                borderColor: '#fff',
+              }],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { position: 'right', labels: { font: { size: 12 } } },
+              },
+            },
+          });
+        }
+
+        // ===== 平台数字详情 =====
         const platformsEl = document.getElementById('usage-platforms');
-        if (Object.keys(d.by_platform).length === 0) {
+        if (platformsEntries.length === 0) {
           platformsEl.innerHTML = '<p class="text-xs text-zinc-500">暂无发布记录。跑一次发布就有了。</p>';
         } else {
-          const max = Math.max(...Object.values(d.by_platform));
+          const max = Math.max(...platformsEntries.map(([_, c]) => c));
           let html = '<div class="space-y-2">';
-          for (const [p, count] of Object.entries(d.by_platform)) {
+          for (const [p, count] of platformsEntries) {
             const pct = (count / max * 100).toFixed(0);
+            const color = PLATFORM_COLORS[p] || '#0a0a0a';
             html += `
               <div class="flex items-center gap-3 text-sm">
                 <div class="w-24 text-zinc-700">${p}</div>
                 <div class="flex-1 bg-zinc-100 rounded h-5 overflow-hidden">
-                  <div class="bg-zinc-900 h-full" style="width: ${pct}%"></div>
+                  <div class="h-full" style="width: ${pct}%; background: ${color};"></div>
                 </div>
                 <div class="w-12 text-right text-zinc-700">${count}</div>
               </div>`;
@@ -415,14 +528,7 @@
           platformsEl.innerHTML = html;
         }
 
-        // 最常用平台
-        const top = Object.entries(d.by_platform).sort((a, b) => b[1] - a[1])[0];
-        document.getElementById('usage-top-platform').textContent = top ? top[0] : '-';
-
-        // 活跃天数
-        document.getElementById('usage-active-days').textContent = Object.keys(d.by_day).length;
-
-        // 最近 20 条
+        // ===== 最近 20 条 =====
         const recentEl = document.getElementById('usage-recent');
         if (d.recent.length === 0) {
           recentEl.innerHTML = '<p class="p-3 text-xs text-zinc-500">暂无发布记录</p>';

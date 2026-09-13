@@ -1,0 +1,34 @@
+# gitleaks 配置 - multi-media-publisher
+# 文档: https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+
+title = "multi-media-publisher gitleaks config"
+
+[extend]
+# 使用 gitleaks 默认规则集
+useDefault = true
+
+# 允许的误报
+[allowlist]
+description = "全局 allowlist"
+paths = [
+  # 文档里的示例（不含真实凭证）
+  '''web/requirements\.txt''',
+  '''README\.md''',
+  '''docs/.*\.md''',
+  '''feishu/.*\.md''',
+  '''dify/apps/.*\.md''',    # prompt 模板里的占位符
+  '''workflows/n8n/.*\.md''',
+]
+# 明确的占位符
+regexes = [
+  '''your_(app_)?id_here''',
+  '''your_(api_)?key_here''',
+  '''your_(bitable_)?token_here''',
+  '''your_table_id_here''',
+  '''change_me''',
+  '''placeholder''',
+  '''example\.com''',
+  '''\{FEISHU_APP_ID\}''',
+  '''\{\$env\.[A-Z_]+\}''',  # n8n env 引用
+  '''\{\{ .+ \}\}''',            # n8n/jinja2 模板
+]
