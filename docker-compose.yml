@@ -1,0 +1,138 @@
+# ============================================================
+# 新媒体一键发布平台 - 核心服务
+# 飞书做前台 + 自托管后台（方案A）
+# ============================================================
+# 包含服务：
+#   - n8n          : 工作流自动化引擎（核心调度）
+#   - minio        : 对象存储（图片/视频/素材）
+#   - uptime-kuma  : 服务监控告警
+#   - playwright    : 浏览器自动化（小红书等无API平台发布）
+#
+# Dify（AI应用平台）单独部署，见 README.md
+# ============================================================
+
+name: media-publisher
+
+services:
+  # ---------- n8n 工作流引擎 ----------
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: media-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - TZ=Asia/Shanghai
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
+      - N8N_HOST=${N8N_HOST}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://${N8N_HOST}:5678/
+      - N8N_EDITOR_BASE_URL=http://${N8N_HOST}:5678/
+      - NODE_FUNCTION_ALLOW_EXTERNAL=axios,cheerio,moment
+      - DB_TYPE=sqlite
+      # 允许节点访问环境变量
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      # 飞书配置
+      - FEISHU_APP_ID=${FEISHU_APP_ID}
+      - FEISHU_APP_SECRET=${FEISHU_APP_SECRET}
+      - FEISHU_BITABLE_TOKEN=${FEISHU_BITABLE_TOKEN}
+      - FEISHU_TABLE_ID=${FEISHU_TABLE_ID}
+      - FEISHU_BOT_WEBHOOK=${FEISHU_BOT_WEBHOOK}
+      # MiniMax AI 配置
+      - MINIMAX_API_KEY=${MINIMAX_API_KEY}
+      - MINIMAX_MODEL=${MINIMAX_MODEL}
+      - MINIMAX_API_URL=${MINIMAX_API_URL}
+      # Dify 配置
+      - DIFY_API_URL=${DIFY_API_URL}
+      - DIFY_API_KEY=${DIFY_API_KEY}
+    volumes:
+      - ./n8n:/home/node/.n8n
+    networks:
+      - media-network
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+      - 223.5.5.5
+      - 114.114.114.114
+
+  # ---------- MinIO 对象存储 ----------
+  minio:
+    image: minio/minio:latest
+    container_name: media-minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"   # API
+      - "9001:9001"   # 控制台
+    environment:
+      - TZ=Asia/Shanghai
+      - MINIO_ROOT_USER=${MINIO_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_PASSWORD}
+    volumes:
+      - ./minio/data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - media-network
+
+  # ---------- Uptime Kuma 监控 ----------
+  uptime-kuma:
+    image: louislam/uptime-kuma:latest
+    container_name: media-uptime
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./uptime-kuma:/app/data
+    networks:
+      - media-network
+
+  # ---------- Playwright 浏览器自动化 ----------
+  # 用于小红书等无公开API平台的自动发布
+  # n8n 通过 HTTP 调用此服务的 API
+  playwright:
+    image: browserless/chrome:latest
+    container_name: media-playwright
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - TZ=Asia/Shanghai
+      - MAX_CONCURRENT_SESSIONS=5
+      - PREBOOT_CHROME=true
+      - DEFAULT_BLOCK_ADS=true
+    networks:
+      - media-network
+
+  # ---------- 飞书长连接事件代理 ----------
+  # 接收飞书多维表格事件，自动转发到 n8n 工作流
+  # 不需要公网回调地址，适合本地开发
+  feishu-ws-bridge:
+    build:
+      context: ./feishu-ws-bridge
+      dockerfile: Dockerfile
+    container_name: media-feishu-ws
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+      - FEISHU_APP_ID=${FEISHU_APP_ID}
+      - FEISHU_APP_SECRET=${FEISHU_APP_SECRET}
+      - N8N_WEBHOOK_URL=http://media-n8n:5678/webhook/feishu-trigger
+      - TARGET_BITABLE_APP_TOKEN=${FEISHU_BITABLE_TOKEN}
+      - DEBOUNCE_MS=3000
+    depends_on:
+      - n8n
+    networks:
+      - media-network
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+      - 223.5.5.5
+      - 114.114.114.114
+
+networks:
+  media-network:
+    driver: bridge
