@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>multi-media-publisher · 控制台</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; }
+    .tab-active { background: #0a0a0a; color: #fff; }
+    .tab-inactive { background: #f4f4f5; color: #18181b; }
+    .pulse-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      display: inline-block; margin-right: 6px;
+      animation: pulse 1.5s infinite;
+    }
+    .pulse-ok { background: #22c55e; }
+    .pulse-fail { background: #ef4444; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    pre { font-family: "SF Mono", Menlo, monospace; font-size: 12px; }
+    .toast {
+      position: fixed; top: 20px; right: 20px;
+      padding: 12px 20px; border-radius: 8px;
+      color: white; font-size: 14px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 9999;
+      opacity: 0; transition: opacity 0.3s;
+    }
+    .toast.show { opacity: 1; }
+    .toast-success { background: #16a34a; }
+    .toast-error { background: #dc2626; }
+    .toast-info { background: #2563eb; }
+  </style>
+</head>
+<body class="bg-zinc-50 min-h-screen">
+  <div id="toast" class="toast"></div>
+
+  <!-- Header -->
+  <header class="bg-white border-b border-zinc-200 px-6 py-4 sticky top-0 z-10">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div>
+        <h1 class="text-xl font-semibold text-zinc-900">multi-media-publisher</h1>
+        <p class="text-xs text-zinc-500 mt-0.5">多平台 AI 内容自动发布系统 · v{{ version }}</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <span id="services-status" class="text-xs text-zinc-500"></span>
+        <a href="https://github.com/masterlinc/multi-media-publisher" target="_blank"
+           class="text-xs text-zinc-500 hover:text-zinc-900">GitHub ↗</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Tabs -->
+  <div class="border-b border-zinc-200 bg-white">
+    <div class="max-w-7xl mx-auto px-6 flex gap-1">
+      <button onclick="switchTab('dashboard')" id="tab-dashboard" class="tab tab-active px-4 py-3 text-sm font-medium">📊 仪表盘</button>
+      <button onclick="switchTab('credentials')" id="tab-credentials" class="tab tab-inactive px-4 py-3 text-sm font-medium">🔑 平台凭证</button>
+      <button onclick="switchTab('drafts')" id="tab-drafts" class="tab tab-inactive px-4 py-3 text-sm font-medium">📄 草稿列表</button>
+      <button onclick="switchTab('publish')" id="tab-publish" class="tab tab-inactive px-4 py-3 text-sm font-medium">🚀 发布控制</button>
+    </div>
+  </div>
+
+  <main class="max-w-7xl mx-auto px-6 py-6">
+
+    <!-- ============== Tab: 仪表盘 ============== -->
+    <section id="panel-dashboard" class="panel">
+      <h2 class="text-lg font-semibold text-zinc-900 mb-4">服务健康</h2>
+      <div id="services-grid" class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+        <div class="bg-white rounded-lg border border-zinc-200 p-4">
+          <div class="text-xs text-zinc-500">n8n</div>
+          <div class="text-sm text-zinc-700 mt-1" id="svc-n8n">检测中...</div>
+        </div>
+        <div class="bg-white rounded-lg border border-zinc-200 p-4">
+          <div class="text-xs text-zinc-500">Dify</div>
+          <div class="text-sm text-zinc-700 mt-1" id="svc-dify">检测中...</div>
+        </div>
+        <div class="bg-white rounded-lg border border-zinc-200 p-4">
+          <div class="text-xs text-zinc-500">MinIO</div>
+          <div class="text-sm text-zinc-700 mt-1" id="svc-minio">检测中...</div>
+        </div>
+        <div class="bg-white rounded-lg border border-zinc-200 p-4">
+          <div class="text-xs text-zinc-500">Uptime Kuma</div>
+          <div class="text-sm text-zinc-700 mt-1" id="svc-uptime">检测中...</div>
+        </div>
+        <div class="bg-white rounded-lg border border-zinc-200 p-4">
+          <div class="text-xs text-zinc-500">Playwright</div>
+          <div class="text-sm text-zinc-700 mt-1" id="svc-playwright">检测中...</div>
+        </div>
+      </div>
+
+      <h2 class="text-lg font-semibold text-zinc-900 mb-4">快速入口</h2>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <a href="http://localhost:5678" target="_blank" class="bg-white rounded-lg border border-zinc-200 p-3 text-sm text-zinc-700 hover:border-zinc-400">📊 n8n 工作流</a>
+        <a href="http://localhost" target="_blank" class="bg-white rounded-lg border border-zinc-200 p-3 text-sm text-zinc-700 hover:border-zinc-400">🤖 Dify AI 平台</a>
+        <a href="http://localhost:9001" target="_blank" class="bg-white rounded-lg border border-zinc-200 p-3 text-sm text-zinc-700 hover:border-zinc-400">📦 MinIO 存储</a>
+        <a href="http://localhost:3001" target="_blank" class="bg-white rounded-lg border border-zinc-200 p-3 text-sm text-zinc-700 hover:border-zinc-400">📈 Uptime Kuma</a>
+      </div>
+    </section>
+
+    <!-- ============== Tab: 平台凭证 ============== -->
+    <section id="panel-credentials" class="panel hidden">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-zinc-900">平台凭证</h2>
+        <div>
+          <button onclick="loadCredentials()" class="text-sm text-zinc-600 hover:text-zinc-900 mr-2">🔄 刷新</button>
+          <button onclick="saveCredentials()" class="bg-zinc-900 text-white px-4 py-2 rounded text-sm hover:bg-zinc-700">💾 保存到 .env</button>
+        </div>
+      </div>
+      <p class="text-xs text-zinc-500 mb-4">敏感字段会脱敏显示，编辑后点保存会原子写入 <code>.env</code>（chmod 600）。</p>
+      <div id="credentials-form" class="space-y-3">
+        <!-- JS 渲染 -->
+      </div>
+    </section>
+
+    <!-- ============== Tab: 草稿列表 ============== -->
+    <section id="panel-drafts" class="panel hidden">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-zinc-900">已打磨草稿（vault 价值文章）</h2>
+        <button onclick="loadDrafts()" class="text-sm text-zinc-600 hover:text-zinc-900">🔄 刷新</button>
+      </div>
+      <div id="drafts-list" class="space-y-2">
+        <p class="text-sm text-zinc-500">加载中...</p>
+      </div>
+    </section>
+
+    <!-- ============== Tab: 发布控制 ============== -->
+    <section id="panel-publish" class="panel hidden">
+      <h2 class="text-lg font-semibold text-zinc-900 mb-4">多平台发布</h2>
+      <p class="text-sm text-zinc-600 mb-4">选一篇草稿 + 选平台 → 一键触发 publish.py（本地直发或经 n8n webhook）。</p>
+
+      <div class="bg-white rounded-lg border border-zinc-200 p-4 mb-4">
+        <label class="text-xs text-zinc-500">选草稿（draft_id）</label>
+        <select id="publish-draft" class="mt-1 w-full border border-zinc-300 rounded px-3 py-2 text-sm"></select>
+      </div>
+
+      <div class="bg-white rounded-lg border border-zinc-200 p-4 mb-4">
+        <label class="text-xs text-zinc-500">选平台（可多选）</label>
+        <div class="mt-2 grid grid-cols-2 md:grid-cols-5 gap-2">
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" value="xiaohongshu" checked class="platform-cb"> 小红书</label>
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" value="juejin" class="platform-cb"> 掘金</label>
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" value="sspai" class="platform-cb"> 少数派</label>
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" value="zhihu" class="platform-cb"> 知乎</label>
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" value="gongzhonghao" class="platform-cb"> 公众号</label>
+        </div>
+      </div>
+
+      <button onclick="doPublish()" class="bg-zinc-900 text-white px-6 py-2 rounded text-sm hover:bg-zinc-700">🚀 立即发布</button>
+
+      <div class="mt-6">
+        <h3 class="text-sm font-semibold text-zinc-700 mb-2">执行结果</h3>
+        <pre id="publish-result" class="bg-zinc-900 text-zinc-100 rounded p-4 text-xs overflow-auto max-h-96"></pre>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    // ============== Tab 切换 ==============
+    function switchTab(name) {
+      document.querySelectorAll('.panel').forEach(p => p.classList.add('hidden'));
+      document.getElementById('panel-' + name).classList.remove('hidden');
+      document.querySelectorAll('.tab').forEach(t => {
+        t.classList.remove('tab-active');
+        t.classList.add('tab-inactive');
+      });
+      document.getElementById('tab-' + name).classList.add('tab-active');
+      document.getElementById('tab-' + name).classList.remove('tab-inactive');
+    }
+
+    // ============== Toast ==============
+    function toast(msg, type = 'info') {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = 'toast show toast-' + type;
+      setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    // ============== 服务健康 ==============
+    async function loadServices() {
+      try {
+        const r = await fetch('/api/services');
+        const d = await r.json();
+        let count = 0;
+        for (const [name, info] of Object.entries(d.services)) {
+          const el = document.getElementById('svc-' + name);
+          if (!el) continue;
+          if (info.ok) {
+            el.innerHTML = '<span class="pulse-dot pulse-ok"></span>健康（HTTP ' + info.status + '）';
+            count++;
+          } else {
+            el.innerHTML = '<span class="pulse-dot pulse-fail"></span>不可达：' + (info.error || 'HTTP ' + info.status);
+          }
+        }
+        document.getElementById('services-status').textContent = `${count} / 5 服务健康`;
+      } catch (e) {
+        toast('加载服务状态失败：' + e, 'error');
+      }
+    }
+
+    // ============== 凭证 ==============
+    async function loadCredentials() {
+      try {
+        const r = await fetch('/api/credentials');
+        const d = await r.json();
+        const form = document.getElementById('credentials-form');
+        form.innerHTML = '';
+        const byCat = {};
+        for (const c of d.credentials) {
+          if (!byCat[c.category]) byCat[c.category] = [];
+          byCat[c.category].push(c);
+        }
+        const catNames = {
+          feishu: '飞书',
+          dify: 'Dify AI',
+          wechat: '公众号',
+          weibo: '微博',
+          ai: 'AI 模型',
+          n8n: 'n8n',
+        };
+        for (const [cat, items] of Object.entries(byCat)) {
+          const section = document.createElement('div');
+          section.className = 'bg-white rounded-lg border border-zinc-200 p-4 mb-3';
+          section.innerHTML = `<div class="text-sm font-semibold text-zinc-700 mb-3">${catNames[cat] || cat}</div>`;
+          for (const c of items) {
+            const row = document.createElement('div');
+            row.className = 'flex items-center gap-3 mb-2';
+            row.innerHTML = `
+              <label class="text-xs text-zinc-500 w-40 shrink-0">${c.name}</label>
+              <input type="${c.secret ? 'password' : 'text'}"
+                     data-key="${c.key}"
+                     data-secret="${c.secret}"
+                     value="${c.value || ''}"
+                     placeholder="${c.secret ? '••••' : ''}"
+                     class="flex-1 border border-zinc-300 rounded px-3 py-1.5 text-sm font-mono">
+            `;
+            section.appendChild(row);
+          }
+          form.appendChild(section);
+        }
+      } catch (e) {
+        toast('加载凭证失败：' + e, 'error');
+      }
+    }
+
+    async function saveCredentials() {
+      const inputs = document.querySelectorAll('#credentials-form input[data-key]');
+      const creds = [];
+      for (const inp of inputs) {
+        if (inp.value.trim()) {
+          creds.push({ key: inp.dataset.key, value: inp.value.trim() });
+        }
+      }
+      try {
+        const r = await fetch('/api/credentials', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credentials: creds }),
+        });
+        const d = await r.json();
+        toast(`✅ 已更新 ${d.count} 个凭证（chmod 600 保护）`, 'success');
+        await loadCredentials();  // 重新脱敏
+      } catch (e) {
+        toast('保存失败：' + e, 'error');
+      }
+    }
+
+    // ============== 草稿 ==============
+    async function loadDrafts() {
+      try {
+        const r = await fetch('/api/drafts');
+        const d = await r.json();
+        const list = document.getElementById('drafts-list');
+        const sel = document.getElementById('publish-draft');
+        list.innerHTML = '';
+        sel.innerHTML = '';
+        if (!d.drafts || d.drafts.length === 0) {
+          list.innerHTML = '<p class="text-sm text-zinc-500">vault 价值文章区还没文章。先跑 <code>python3 pipeline/publish.py run-all &lt;draft&gt;</code> 之前的 pipeline 流程。</p>';
+          return;
+        }
+        for (const draft of d.drafts) {
+          const card = document.createElement('div');
+          card.className = 'bg-white rounded border border-zinc-200 p-3 flex items-center justify-between';
+          const sizeKb = (draft.size_bytes / 1024).toFixed(1);
+          const ts = new Date(draft.modified * 1000).toLocaleString('zh-CN');
+          card.innerHTML = `
+            <div>
+              <div class="text-sm font-medium text-zinc-900">${draft.title}</div>
+              <div class="text-xs text-zinc-500 mt-0.5">
+                <code>${draft.draft_id}</code> · ${sizeKb} KB · ${ts} · 状态：${draft.publish_status}
+              </div>
+            </div>
+            <button onclick="selectDraftForPublish('${draft.draft_id}')"
+                    class="text-xs text-zinc-600 hover:text-zinc-900">→ 选这个发布</button>
+          `;
+          list.appendChild(card);
+
+          const opt = document.createElement('option');
+          opt.value = draft.draft_id;
+          opt.textContent = `${draft.title} (${draft.draft_id})`;
+          sel.appendChild(opt);
+        }
+      } catch (e) {
+        toast('加载草稿失败：' + e, 'error');
+      }
+    }
+
+    function selectDraftForPublish(draftId) {
+      switchTab('publish');
+      document.getElementById('publish-draft').value = draftId;
+    }
+
+    // ============== 发布 ==============
+    async function doPublish() {
+      const draftId = document.getElementById('publish-draft').value;
+      const platforms = Array.from(document.querySelectorAll('.platform-cb:checked')).map(c => c.value);
+      if (!draftId) { toast('请先选草稿', 'error'); return; }
+      if (platforms.length === 0) { toast('请至少选一个平台', 'error'); return; }
+
+      const resultEl = document.getElementById('publish-result');
+      resultEl.textContent = `⏳ 正在发布：${draftId} → ${platforms.join(', ')}\n\n`;
+
+      try {
+        const r = await fetch('/api/publish', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ draft_id: draftId, platforms: platforms }),
+        });
+        const d = await r.json();
+        resultEl.textContent += '=== STDOUT ===\n' + (d.stdout || '') + '\n';
+        resultEl.textContent += '=== STDERR ===\n' + (d.stderr || '') + '\n';
+        resultEl.textContent += '=== EXIT CODE ===\n' + d.returncode + '\n';
+        if (d.ok) {
+          toast('✅ 发布完成', 'success');
+        } else {
+          toast('❌ 发布失败（看执行结果）', 'error');
+        }
+      } catch (e) {
+        resultEl.textContent += '=== ERROR ===\n' + e + '\n';
+        toast('发布请求失败：' + e, 'error');
+      }
+    }
+
+    // ============== 初始化 ==============
+    loadServices();
+    loadCredentials();
+    loadDrafts();
+    setInterval(loadServices, 30000);  // 30s 刷新服务状态
+  </script>
+</body>
+</html>
