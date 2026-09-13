@@ -1,0 +1,361 @@
+{
+  "name": "multi-media-publisher · 多平台发布",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "multi-media-publish",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook 触发",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "multi-media-publish"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "platform",
+              "value": "={{$json.body.platform}}"
+            },
+            {
+              "name": "title",
+              "value": "={{$json.body.title}}"
+            },
+            {
+              "name": "body",
+              "value": "={{$json.body.body}}"
+            },
+            {
+              "name": "tags",
+              "value": "={{$json.body.tags}}"
+            },
+            {
+              "name": "draft_id",
+              "value": "={{$json.body.draft_id}}"
+            },
+            {
+              "name": "cover_url",
+              "value": "={{$json.body.cover_url || ''}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-vars",
+      "name": "提取变量",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.platform}}",
+              "operation": "equals",
+              "value2": "gongzhonghao"
+            }
+          ]
+        }
+      },
+      "id": "switch-platform",
+      "name": "按平台分支",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.weixin.qq.com/cgi-bin/draft/add",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "access_token",
+              "value": "={{$env.WECHAT_ACCESS_TOKEN}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "title",
+              "value": "={{$json.title}}"
+            },
+            {
+              "name": "content",
+              "value": "={{$json.body}}"
+            },
+            {
+              "name": "author",
+              "value": "路上 AI 管理博士"
+            },
+            {
+              "name": "digest",
+              "value": "={{$json.body.substring(0, 100)}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "wx-publish",
+      "name": "公众号：调微信 API 建草稿",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [900, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://media-playwright:3000/api/publish",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "platform",
+              "value": "={{$json.platform}}"
+            },
+            {
+              "name": "title",
+              "value": "={{$json.title}}"
+            },
+            {
+              "name": "body",
+              "value": "={{$json.body}}"
+            },
+            {
+              "name": "tags",
+              "value": "={{$json.tags}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "playwright-publish",
+      "name": "Playwright RPA（小红书/掘金/知乎/微博）",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [900, 250]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://media-feishu-ws:3000/feishu/event",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "type",
+              "value": "publish_completed"
+            },
+            {
+              "name": "platform",
+              "value": "={{$json.platform}}"
+            },
+            {
+              "name": "draft_id",
+              "value": "={{$json.draft_id}}"
+            },
+            {
+              "name": "result",
+              "value": "={{$json}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "feishu-callback",
+      "name": "飞书回调（写回多维表格）",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1120, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.FEISHU_BOT_WEBHOOK}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "msg_type",
+              "value": "text"
+            },
+            {
+              "name": "content",
+              "value": "={{'{\"text\":\"✅ [' + $json.platform + '] 发布成功\\n草稿：' + $json.title + '\\nID: ' + $json.draft_id + '\"}'}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "feishu-notify",
+      "name": "飞书机器人通知",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1120, 250]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}"
+      },
+      "id": "respond",
+      "name": "返回 JSON 结果",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 300]
+    }
+  ],
+  "connections": {
+    "Webhook 触发": {
+      "main": [
+        [
+          {
+            "node": "提取变量",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "提取变量": {
+      "main": [
+        [
+          {
+            "node": "按平台分支",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "按平台分支": {
+      "main": [
+        [
+          {
+            "node": "公众号：调微信 API 建草稿",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Playwright RPA（小红书/掘金/知乎/微博）",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "公众号：调微信 API 建草稿": {
+      "main": [
+        [
+          {
+            "node": "飞书回调（写回多维表格）",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Playwright RPA（小红书/掘金/知乎/微博）": {
+      "main": [
+        [
+          {
+            "node": "飞书机器人通知",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "飞书回调（写回多维表格）": {
+      "main": [
+        [
+          {
+            "node": "返回 JSON 结果",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "飞书机器人通知": {
+      "main": [
+        [
+          {
+            "node": "返回 JSON 结果",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "publish"
+    },
+    {
+      "name": "multi-platform"
+    }
+  ],
+  "triggerCount": 0,
+  "versionId": "1.0.0",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "multi-media-publisher-v0.3.0"
+  },
+  "pinData": {},
+  "id": "multi-platform-publish-v1"
+}
