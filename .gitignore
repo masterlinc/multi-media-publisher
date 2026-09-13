@@ -4,13 +4,23 @@
 .env.*.local
 *.env
 
-# ============== 数据卷 ==============
+# ============== Docker 数据卷（绝不入 git）==============
+# Dify 完整数据卷
+dify/
+# n8n 工作流数据
 n8n/
+# MinIO 素材
 minio/
+# 监控
 uptime-kuma/
+# 飞书 WS 桥接
 feishu-ws-bridge/
+# 但 feishu 配置文档要保留（feishu/*.md 不被 ignore 因为下面规则）
+# 修正：feishu/ 只 ignore 跟数据卷相关的子目录，配置 md 保留
+# 实际上 feishu/ 整个目录会被上面的 feishu-ws-bridge/ 命中，**不对**
+# 改：把 feishu-ws-bridge/ 改成精确匹配
 
-# ============== 临时文件 ==============
+# 临时文件
 *.log
 *.tmp
 .DS_Store
@@ -20,7 +30,7 @@ feishu-ws-bridge/
 *.swo
 .~*
 
-# ============== Python ==============
+# Python
 __pycache__/
 *.pyc
 *.pyo
@@ -32,38 +42,37 @@ venv/
 .venv/
 env/
 
-# ============== Node ==============
+# Node
 node_modules/
 .npm
 .next/
 out/
 dist/
 
-# ============== 编辑器 ==============
+# 编辑器
 .idea/
 .vscode/
 *.iml
 
-# ============== 备份 / 压缩 ==============
+# 备份
 *.tar.gz
 *.zip
 *.rar
 *.7z
 
-# ============== 系统 ==============
+# 系统
 Thumbs.db
-.DS_Store
 .Spotlight-V100
 .Trashes
 
-# ============== Docker ==============
+# Docker
 docker-compose.override.yml
 
-# ============== 日志 ==============
+# 日志
 logs/
 *.log.*
 
-# ============== 临时工作 ==============
+# 临时
 tmp/
 .tmp/
 .cache/
